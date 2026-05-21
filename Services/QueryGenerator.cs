@@ -27,7 +27,18 @@ public class QueryGenerator
                 _ => expr.RawExpression   // keep original if no value provided
             };
 
-            result = result.Replace(expr.RawExpression, replacement);
+            if (replacement == "")
+            {
+                // Expression resolves to empty — remove the whole line so we don't
+                // leave behind a blank/whitespace-only line in the output.
+                var linePattern = new Regex(
+                    $@"(?m)^[^\S\n]*{Regex.Escape(expr.RawExpression)}[^\S\n]*(\r?\n|$)");
+                result = linePattern.Replace(result, "");
+            }
+            else
+            {
+                result = result.Replace(expr.RawExpression, replacement);
+            }
         }
 
         // 2. Replace SQL @parameters
