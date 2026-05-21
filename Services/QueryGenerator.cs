@@ -55,12 +55,12 @@ public class QueryGenerator
                 // Use MatchEvaluator to prevent regex treating $ \ in value as special
                 result = Regex.Replace(
                     result,
-                    $@"@{Regex.Escape(param.Name)}\b",
+                    $@"(?<!@)@{Regex.Escape(param.Name)}\b",
                     _ => value);
             }
             else if (!keepUnfilledParams)
             {
-                result = Regex.Replace(result, $@"@{Regex.Escape(param.Name)}\b", "");
+                result = Regex.Replace(result, $@"(?<!@)@{Regex.Escape(param.Name)}\b", "");
             }
         }
 

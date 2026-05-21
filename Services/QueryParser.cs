@@ -19,7 +19,7 @@ public class QueryParser
 
     // Matches @paramName in SQL
     private static readonly Regex ParamPattern =
-        new(@"@([A-Za-z_]\w*)", RegexOptions.Compiled);
+        new(@"(?<!@)@([A-Za-z_]\w*)", RegexOptions.Compiled);
 
     // Matches a simple boolean variable condition: optional ! then identifier
     private static readonly Regex SimpleConditionPattern =

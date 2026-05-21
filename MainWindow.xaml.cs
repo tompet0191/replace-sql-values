@@ -822,7 +822,7 @@ public partial class MainWindow : Window
         }
 
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match m in Regex.Matches(text, @"@([A-Za-z_]\w*)"))
+        foreach (Match m in Regex.Matches(text, @"(?<!@)@([A-Za-z_]\w*)"))
             result.Add(m.Groups[1].Value);
         return result;
     }
