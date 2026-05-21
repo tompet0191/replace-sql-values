@@ -52,10 +52,11 @@ public class QueryGenerator
                 if (param.IsListParam && !(value.StartsWith("(") && value.EndsWith(")")))
                     value = $"({value})";
 
+                // Use MatchEvaluator to prevent regex treating $ \ in value as special
                 result = Regex.Replace(
                     result,
                     $@"@{Regex.Escape(param.Name)}\b",
-                    value);
+                    _ => value);
             }
             else if (!keepUnfilledParams)
             {

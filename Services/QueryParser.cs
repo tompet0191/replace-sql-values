@@ -122,6 +122,14 @@ public class QueryParser
     private static readonly Regex InParamPattern =
         new(@"\bIN\s+@([A-Za-z_]\w*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Matches OPENJSON(@param) WITH ( — captures param name and index of the opening paren
+    private static readonly Regex OpenJsonPattern =
+        new(@"OPENJSON\s*\(\s*@(\w+)\s*\)\s+WITH\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Matches a single column definition inside WITH: [Name] [type] or [Name] type(...)
+    private static readonly Regex WithColumnPattern =
+        new(@"\[(\w+)\]\s+\[?(\w+)\]?(?:\s*\([^)]*\))?", RegexOptions.Compiled);
+
     private List<SqlParameter> ParseParameters(string query, List<ParsedItem> expressions)
     {
         // Strip {expression} blocks from the main query so we don't pick up
@@ -140,6 +148,19 @@ public class QueryParser
         foreach (Match m in InParamPattern.Matches(searchText))
             inListNames.Add(m.Groups[1].Value);
 
+        // Collect OPENJSON params and their WITH-clause columns
+        var jsonParams = new Dictionary<string, List<JsonColumn>>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in OpenJsonPattern.Matches(searchText))
+        {
+            var name = m.Groups[1].Value;
+            if (!jsonParams.ContainsKey(name))
+            {
+                // The opening paren of WITH ( is the last char of this match
+                var columns = ParseWithColumns(searchText, m.Index + m.Length - 1);
+                jsonParams[name] = columns;
+            }
+        }
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var parameters = new List<SqlParameter>();
 
@@ -150,11 +171,34 @@ public class QueryParser
                 parameters.Add(new SqlParameter
                 {
                     Name = name,
-                    IsListParam = inListNames.Contains(name)
+                    IsListParam = inListNames.Contains(name),
+                    IsJsonParam = jsonParams.ContainsKey(name),
+                    JsonColumns = jsonParams.TryGetValue(name, out var cols) ? cols : new()
                 });
         }
 
         return parameters;
+    }
+
+    /// <summary>
+    /// Starting at the opening paren of WITH (, scans for the matching closing paren
+    /// and extracts all [ColumnName] [SqlType] definitions within.
+    /// </summary>
+    private static List<JsonColumn> ParseWithColumns(string text, int openParenIndex)
+    {
+        int depth = 1, i = openParenIndex + 1;
+        while (i < text.Length && depth > 0)
+        {
+            if (text[i] == '(') depth++;
+            else if (text[i] == ')') depth--;
+            i++;
+        }
+        var withContent = text.Substring(openParenIndex + 1, i - openParenIndex - 2);
+
+        var columns = new List<JsonColumn>();
+        foreach (Match m in WithColumnPattern.Matches(withContent))
+            columns.Add(new JsonColumn { Name = m.Groups[1].Value, SqlType = m.Groups[2].Value });
+        return columns;
     }
 
     /// <summary>Strips C# string prefix ($@", @", $", ") and trailing "; or " wrapper.</summary>

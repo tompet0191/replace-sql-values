@@ -53,6 +53,18 @@ public class SqlParameter
     public string? ReplacementValue { get; set; }
     /// <summary>True when the parameter appears after IN in the query (e.g. IN @CompanyIds).</summary>
     public bool IsListParam { get; set; }
+    /// <summary>True when the parameter is used in OPENJSON(@param) WITH (...).</summary>
+    public bool IsJsonParam { get; set; }
+    public List<JsonColumn> JsonColumns { get; set; } = new();
+}
+
+public class JsonColumn
+{
+    public string Name { get; set; } = "";
+    public string SqlType { get; set; } = "";
+    /// <summary>Numeric SQL types should not be quoted in the JSON output.</summary>
+    public bool IsNumeric => SqlType.ToLowerInvariant() is
+        "int" or "bigint" or "smallint" or "tinyint" or "decimal" or "numeric" or "float" or "real" or "money" or "bit";
 }
 
 public class ParseResult

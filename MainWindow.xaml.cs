@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private readonly List<(TernaryExpression Ternary, RadioButton TrueRb, RadioButton FalseRb)> _complexTernaryControls = new();
     private readonly List<(GenericExpression Generic, TextBox Box)> _genericControls = new();
     private readonly List<(SqlParameter Param, TextBox Box, Border Row)> _paramControls = new();
+    private readonly List<(SqlParameter Param, List<List<TextBox>> Rows, StackPanel OuterPanel, TextBox JsonBox, Func<bool> InJsonMode)> _jsonParamControls = new();
 
     // Alternate row colors
     private static readonly Brush RowEven = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
@@ -135,6 +136,37 @@ public partial class MainWindow : Window
         foreach (var (generic, box)        in _genericControls)  generic.ReplacementValue = box.Text;
         foreach (var (param, box, _)          in _paramControls)    param.ReplacementValue = box.Text;
 
+        // Serialize JSON params from the table rows or raw paste box
+        foreach (var (param, rows, _, jsonBox, inJsonMode) in _jsonParamControls)
+        {
+            if (inJsonMode())
+            {
+                var raw = jsonBox.Text.Trim();
+                param.ReplacementValue = string.IsNullOrEmpty(raw) ? "''" : $"'{raw}'";
+            }
+            else
+            {
+                var jsonObjects = new List<string>();
+                foreach (var rowBoxes in rows)
+                {
+                    var fields = new List<string>();
+                    for (int c = 0; c < param.JsonColumns.Count; c++)
+                    {
+                        var val = rowBoxes[c].Text.Trim();
+                        if (string.IsNullOrEmpty(val)) continue;
+                        var col = param.JsonColumns[c];
+                        var jsonVal = col.IsNumeric ? val : $"\"{val.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
+                        fields.Add($"\"{col.Name}\":{jsonVal}");
+                    }
+                    if (fields.Any())
+                        jsonObjects.Add("{" + string.Join(",", fields) + "}");
+                }
+                param.ReplacementValue = jsonObjects.Count > 0
+                    ? "'[" + string.Join(",", jsonObjects) + "]'"
+                    : "''";
+            }
+        }
+
         // Resolve bool variables → ternary UseTrue
         foreach (var (bv, combo) in _boolVarControls)
         {
@@ -169,6 +201,7 @@ public partial class MainWindow : Window
         _complexTernaryControls.Clear();
         _genericControls.Clear();
         _paramControls.Clear();
+        _jsonParamControls.Clear();
 
         if (_parseResult == null) return;
 
@@ -223,9 +256,17 @@ public partial class MainWindow : Window
             int row = 0;
             foreach (var param in sqlParams)
             {
-                var (panel, box, rowBorder) = MakeParamRow(param, row++);
-                stack.Children.Add(panel);
-                _paramControls.Add((param, box, rowBorder));
+                if (param.IsJsonParam)
+                {
+                    var panel = MakeJsonParamRow(param, row++);
+                    stack.Children.Add(panel);
+                }
+                else
+                {
+                    var (panel, box, rowBorder) = MakeParamRow(param, row++);
+                    stack.Children.Add(panel);
+                    _paramControls.Add((param, box, rowBorder));
+                }
             }
         }
 
@@ -559,18 +600,210 @@ public partial class MainWindow : Window
         return (row, box, row);
     }
 
+    private Border MakeJsonParamRow(SqlParameter param, int index)
+    {
+        var cols = param.JsonColumns;
+        var outer = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
+
+        // ── Header bar: @paramName [json] ──
+        var headerBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
+        headerBar.Children.Add(new TextBlock
+        {
+            Text = $"@{param.Name}",
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x6A, 0x1B, 0x9A)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        headerBar.Children.Add(new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0xE0, 0xF2, 0xF1)),
+            CornerRadius = new CornerRadius(3),
+            Margin = new Thickness(5, 0, 0, 0),
+            Padding = new Thickness(4, 1, 4, 1),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = "json", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x00, 0x69, 0x64)) }
+        });
+        outer.Children.Add(headerBar);
+
+        // ── Mode toggle buttons ──
+        bool jsonModeActive = false;
+
+        var btnTable = new Button { Content = "Table",     Padding = new Thickness(10, 2, 10, 2), FontSize = 11, Margin = new Thickness(0, 0, 2, 6) };
+        var btnJson  = new Button { Content = "Paste JSON", Padding = new Thickness(10, 2, 10, 2), FontSize = 11, Margin = new Thickness(0, 0, 0, 6) };
+
+        var toggleBar = new StackPanel { Orientation = Orientation.Horizontal };
+        toggleBar.Children.Add(btnTable);
+        toggleBar.Children.Add(btnJson);
+        outer.Children.Add(toggleBar);
+
+        // ── Table content ──
+        var tableStack = new StackPanel();
+
+        var tableGrid = new Grid();
+        for (int c = 0; c < cols.Count; c++)
+            tableGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        tableGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // ✕ column
+
+        // Column header row
+        tableGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (int c = 0; c < cols.Count; c++)
+        {
+            var hdr = new TextBlock
+            {
+                Text = cols[c].Name,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x37, 0x47, 0x4F)),
+                Background = new SolidColorBrush(Color.FromRgb(0xEC, 0xEF, 0xF1)),
+                Padding = new Thickness(4, 2, 4, 2),
+                Margin = new Thickness(0, 0, 1, 2)
+            };
+            Grid.SetRow(hdr, 0);
+            Grid.SetColumn(hdr, c);
+            tableGrid.Children.Add(hdr);
+        }
+
+        var allRows = new List<List<TextBox>>();
+        int nextGridRow = 1;
+
+        void AddDataRow()
+        {
+            int r = nextGridRow++;
+            tableGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var rowBoxes = new List<TextBox>();
+
+            for (int c = 0; c < cols.Count; c++)
+            {
+                var box = new TextBox
+                {
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 11,
+                    Margin = new Thickness(0, 0, 1, 1),
+                    Padding = new Thickness(3, 1, 3, 1),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(0xB0, 0xBE, 0xC5)),
+                    ToolTip = $"{cols[c].Name}  ({cols[c].SqlType})"
+                };
+                Grid.SetRow(box, r);
+                Grid.SetColumn(box, c);
+                tableGrid.Children.Add(box);
+                rowBoxes.Add(box);
+            }
+            allRows.Add(rowBoxes);
+
+            var removeBtn = new Button
+            {
+                Content = "✕",
+                FontSize = 10,
+                Padding = new Thickness(4, 1, 4, 1),
+                Margin = new Thickness(2, 0, 0, 1),
+                Background = Brushes.Transparent,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xEF, 0x9A, 0x9A)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)),
+                ToolTip = "Remove row"
+            };
+            Grid.SetRow(removeBtn, r);
+            Grid.SetColumn(removeBtn, cols.Count);
+            removeBtn.Click += (_, _) =>
+            {
+                foreach (var el in tableGrid.Children.OfType<UIElement>().Where(el => Grid.GetRow(el) == r).ToList())
+                    el.Visibility = Visibility.Collapsed;
+                allRows.Remove(rowBoxes);
+            };
+            tableGrid.Children.Add(removeBtn);
+        }
+
+        AddDataRow();
+
+        tableStack.Children.Add(new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = tableGrid,
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+
+        var addRowBtn = new Button
+        {
+            Content = "+ Add Row",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(8, 2, 8, 2),
+            FontSize = 11
+        };
+        addRowBtn.Click += (_, _) => AddDataRow();
+        tableStack.Children.Add(addRowBtn);
+
+        outer.Children.Add(tableStack);
+
+        // ── JSON paste box (hidden by default) ──
+        var jsonPasteBox = new TextBox
+        {
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.NoWrap,
+            MinHeight = 80,
+            MaxHeight = 200,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(4),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0xB0, 0xBE, 0xC5)),
+            Margin = new Thickness(0, 0, 0, 4),
+            Visibility = Visibility.Collapsed,
+            ToolTip = "Paste a JSON array here, e.g. [{\"Id\":1,\"Name\":\"foo\"}]"
+        };
+        outer.Children.Add(jsonPasteBox);
+
+        // ── Active/inactive tab styling ──
+        var activeTabBg   = new SolidColorBrush(Color.FromRgb(0x15, 0x65, 0xC0));
+        var inactiveTabBg = new SolidColorBrush(Color.FromRgb(0xE8, 0xEA, 0xED));
+        var activeTabFg   = Brushes.White;
+        var inactiveTabFg = new SolidColorBrush(Color.FromRgb(0x37, 0x47, 0x4F));
+
+        void ApplyTabStyle(bool inJson)
+        {
+            btnTable.Background = inJson ? inactiveTabBg : activeTabBg;
+            btnTable.Foreground = inJson ? inactiveTabFg : activeTabFg;
+            btnJson.Background  = inJson ? activeTabBg : inactiveTabBg;
+            btnJson.Foreground  = inJson ? activeTabFg : inactiveTabFg;
+            tableStack.Visibility  = inJson ? Visibility.Collapsed : Visibility.Visible;
+            jsonPasteBox.Visibility = inJson ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        ApplyTabStyle(false); // start in Table mode
+
+        btnTable.Click += (_, _) => { jsonModeActive = false; ApplyTabStyle(false); };
+        btnJson.Click  += (_, _) => { jsonModeActive = true;  ApplyTabStyle(true);  };
+
+        _jsonParamControls.Add((param, allRows, outer, jsonPasteBox, () => jsonModeActive));
+        return WrapRow(outer, index);
+    }
+
     // ─────────────────────────── Param visibility ──────────────────────────────
 
     private void RefreshParamVisibility()
     {
-        if (_parseResult == null || _paramControls.Count == 0) return;
+        if (_parseResult == null) return;
 
         var active = GetActiveParamNames();
+
         foreach (var (param, box, rowBorder) in _paramControls)
         {
             var isActive = active.Contains(param.Name);
             rowBorder.Opacity = isActive ? 1.0 : 0.35;
             box.IsEnabled = isActive;
+        }
+
+        foreach (var (param, _, outerPanel, _, _) in _jsonParamControls)
+        {
+            var isActive = active.Contains(param.Name);
+            if (outerPanel.Parent is Border rowBorder)
+            {
+                rowBorder.Opacity = isActive ? 1.0 : 0.35;
+                outerPanel.IsEnabled = isActive;
+            }
         }
     }
 
