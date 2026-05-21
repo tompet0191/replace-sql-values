@@ -1,0 +1,220 @@
+<Window x:Class="ReplaceValuesSql.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SQL Parameter Replacer"
+        Height="860" Width="1300"
+        MinHeight="600" MinWidth="900"
+        WindowStartupLocation="CenterScreen"
+        Background="#ECEFF1">
+
+    <Window.Resources>
+        <!-- GroupBox -->
+        <Style TargetType="GroupBox">
+            <Setter Property="Margin" Value="4,4,4,2"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="BorderBrush" Value="#B0BEC5"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" FontWeight="SemiBold"
+                                   Foreground="#37474F" FontSize="12"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Primary button -->
+        <Style x:Key="PrimaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#1976D2"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Margin" Value="4,2"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#1565C0"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#0D47A1"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Secondary button -->
+        <Style x:Key="SecondaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#CFD8DC"/>
+            <Setter Property="Foreground" Value="#37474F"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Margin" Value="4,2"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#B0BEC5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Mono TextBox -->
+        <Style x:Key="MonoBox" TargetType="TextBox">
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="BorderBrush" Value="#B0BEC5"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Background" Value="White"/>
+        </Style>
+
+        <!-- Section expander -->
+        <Style x:Key="SectionExpander" TargetType="Expander">
+            <Setter Property="Margin" Value="0,4,0,2"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#455A64"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="IsExpanded" Value="True"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" MinWidth="280"/>
+            <ColumnDefinition Width="6"/>
+            <ColumnDefinition Width="3*" MinWidth="400"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ═══════════════════════════════════ LEFT COLUMN ═══════════════════════════════════ -->
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="200"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="175"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <GroupBox Grid.Row="0" Header="① Input SQL  (paste C# interpolated query here)">
+                <TextBox x:Name="InputTextBox"
+                         Style="{StaticResource MonoBox}"
+                         AcceptsReturn="True" AcceptsTab="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         BorderThickness="0"
+                         ToolTip="Paste your C# interpolated SQL string here — $@&quot;...&quot; wrapper is stripped automatically."/>
+            </GroupBox>
+
+            <DockPanel Grid.Row="1" Margin="4,2">
+                <TextBlock VerticalAlignment="Center" Foreground="#78909C" FontSize="11"
+                           Text="Supports $@&quot;&quot;, ternary {(bool?&quot;a&quot;:&quot;b&quot;)}, and cast {(int)Enum.Val} expressions"/>
+                <Button DockPanel.Dock="Right" Content="🔍  Parse Query"
+                        Style="{StaticResource PrimaryBtn}"
+                        Click="ParseButton_Click"
+                        ToolTip="Parse the query and extract all C# expressions and SQL @parameters (Ctrl+Enter)"/>
+            </DockPanel>
+
+            <GroupBox Grid.Row="2" Header="② Enum Values  (paste C# enum definitions to auto-fill)">
+                <TextBox x:Name="EnumTextBox"
+                         Style="{StaticResource MonoBox}"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         BorderThickness="0"
+                         ToolTip="Paste one or more C# enum definitions. e.g:&#x0a;  enum SaleType { CashRegister = 3, Online = 5 }&#x0a;The app matches member names to cast expressions like {(int)SaleType.CashRegister}."/>
+            </GroupBox>
+
+            <DockPanel Grid.Row="3" Margin="4,2">
+                <TextBlock VerticalAlignment="Center" Foreground="#78909C" FontSize="11"
+                           Text="Matches by member name — paste multiple enums at once"/>
+                <Button DockPanel.Dock="Right" Content="📋  Apply Enums"
+                        Style="{StaticResource SecondaryBtn}"
+                        Click="ApplyEnumsButton_Click"/>
+            </DockPanel>
+        </Grid>
+
+        <!-- Splitter -->
+        <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Stretch"
+                      Background="#B0BEC5" Cursor="SizeWE"/>
+
+        <!-- ══════════════════════════════════ RIGHT COLUMN ══════════════════════════════════ -->
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="200"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*" MinHeight="160"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Parameters -->
+            <GroupBox Grid.Row="0" Header="③ Parameters">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="ParametersPanel" Margin="4,2"/>
+                </ScrollViewer>
+            </GroupBox>
+
+            <DockPanel Grid.Row="1" Margin="4,2">
+                <CheckBox x:Name="KeepUnfilledParams"
+                          VerticalAlignment="Center" Margin="4,0"
+                          Content="Keep unfilled @params as-is"
+                          IsChecked="True"
+                          Foreground="#546E7A" FontWeight="Normal" FontSize="12"/>
+                <Button DockPanel.Dock="Right" Content="⚡  Generate SQL"
+                        Style="{StaticResource PrimaryBtn}"
+                        Click="GenerateButton_Click"
+                        ToolTip="Build the final SQL with all replacements applied (Ctrl+Shift+Enter)"/>
+                <Button DockPanel.Dock="Right" Content="🗑  Clear"
+                        Style="{StaticResource SecondaryBtn}"
+                        Click="ClearButton_Click"/>
+            </DockPanel>
+
+            <!-- Output -->
+            <GroupBox Grid.Row="2" Header="④ Output SQL  (ready to paste into SSMS)">
+                <TextBox x:Name="OutputTextBox"
+                         Style="{StaticResource MonoBox}"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         IsReadOnly="True"
+                         Background="#F1F8E9"
+                         BorderThickness="0"/>
+            </GroupBox>
+
+            <DockPanel Grid.Row="3" Margin="4,2">
+                <TextBlock x:Name="StatusText"
+                           VerticalAlignment="Center" Margin="4,0"
+                           Foreground="#546E7A" FontSize="11"/>
+                <Button DockPanel.Dock="Right" Content="📋  Copy to Clipboard"
+                        Style="{StaticResource SecondaryBtn}"
+                        Click="CopyButton_Click"/>
+            </DockPanel>
+        </Grid>
+    </Grid>
+</Window>
