@@ -9,6 +9,7 @@ Paste a C# interpolated SQL string — the kind you'd find in a .NET repository 
 - Detect `{(int)Enum.Value}` **cast expressions** and let you fill in the integer value (or auto-fill by pasting the enum definition)
 - Detect `{(condition ? "SQL fragment" : "")}` **ternary expressions**, group them by their boolean variable, and let you pick `true` / `false` from a dropdown
 - Detect `@paramName` **SQL parameters** and let you type replacement values inline — list parameters (used after `IN`) auto-wrap `1,2,3` → `(1,2,3)`
+- Detect `OPENJSON(@paramName) WITH (...)` **JSON parameters** and provide a dedicated input
 
 ## Requirements
 
@@ -39,3 +40,10 @@ The executable will be in `bin\Release\net8.0-windows\win-x64\publish\`.
 4. Fill in the parameter values on the right — greyed-out rows won't appear in the output
 5. Click **Generate SQL** (`Ctrl+Shift+Enter`)
 6. Click **Copy to Clipboard** and paste into query window
+
+## JSON parameters (OPENJSON)
+
+When the query contains `OPENJSON(@param) WITH (...)`, the app reads the column definitions from the `WITH` clause and shows a dedicated input with two modes — toggle between them using the **Table** / **Paste JSON** buttons on the parameter row:
+
+- **Table mode** — an editable grid with one column per `WITH` field. Add rows with **+ Add Row**, remove individual rows with **✕**. The app serialises the grid into a JSON array and wraps it in SQL single quotes when generating.
+- **Paste JSON mode** — paste a raw JSON value directly (object `{...}` for a single row, array `[{...}, {...}]` for multiple rows). The value is passed through as-is, wrapped in SQL single quotes.
