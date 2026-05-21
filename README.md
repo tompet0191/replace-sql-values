@@ -24,13 +24,13 @@ cd replace-values-sql
 dotnet run
 ```
 
-Or build a self-contained executable:
+Or publish an executable:
 
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+dotnet publish -c Release --self-contained false
 ```
 
-The executable will be in `bin\Release\net8.0-windows\win-x64\publish\`.
+The executable will be in `bin\Release\net8.0-windows\publish\`.
 
 ## Usage
 
