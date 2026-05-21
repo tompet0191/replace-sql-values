@@ -156,7 +156,7 @@ public partial class MainWindow : Window
             KeepUnfilledParams.IsChecked == true);
 
         OutputTextBox.Text = output;
-        SetStatus("✔ SQL generated.  Click Copy to Clipboard to use in SSMS.");
+        SetStatus("✔ SQL generated.  Click Copy to Clipboard.");
     }
 
     // ──────────────────────────── Dynamic UI building ──────────────────────────────

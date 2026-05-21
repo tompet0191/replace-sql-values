@@ -196,7 +196,7 @@
             </DockPanel>
 
             <!-- Output -->
-            <GroupBox Grid.Row="2" Header="④ Output SQL  (ready to paste into SSMS)">
+            <GroupBox Grid.Row="2" Header="④ Output SQL">
                 <TextBox x:Name="OutputTextBox"
                          Style="{StaticResource MonoBox}"
                          AcceptsReturn="True"
