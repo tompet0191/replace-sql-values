@@ -7,10 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>ReplaceValuesSql</AssemblyName>
     <RootNamespace>ReplaceValuesSql</RootNamespace>
+    <ApplicationIcon>Assets\replace-sql-values.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Tests\**" />
     <None Remove="Tests\**" />
     <EmbeddedResource Remove="Tests\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Assets\replace-sql-values.ico" />
   </ItemGroup>
 </Project>
