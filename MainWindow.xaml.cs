@@ -355,9 +355,19 @@ public partial class MainWindow : Window
 
                     if (activeIsEmpty)
                     {
-                        block.Text = "(nothing added)";
-                        block.Foreground = BrushEmpty;
-                        block.TextDecorations = null;
+                        // Active branch adds nothing — show what's being excluded in red
+                        if (!string.IsNullOrEmpty(inactiveText))
+                        {
+                            block.Text = inactiveText;
+                            block.Foreground = BrushExcluded;
+                            block.TextDecorations = TextDecorations.Strikethrough;
+                        }
+                        else
+                        {
+                            block.Text = "(nothing added)";
+                            block.Foreground = BrushEmpty;
+                            block.TextDecorations = null;
+                        }
                     }
                     else
                     {

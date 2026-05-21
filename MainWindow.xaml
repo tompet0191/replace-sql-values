@@ -130,12 +130,13 @@
             </GroupBox>
 
             <DockPanel Grid.Row="1" Margin="4,2">
-                <TextBlock VerticalAlignment="Center" Foreground="#78909C" FontSize="11"
-                           Text="Supports $@&quot;&quot;, ternary {(bool?&quot;a&quot;:&quot;b&quot;)}, and cast {(int)Enum.Val} expressions"/>
                 <Button DockPanel.Dock="Right" Content="🔍  Parse Query"
                         Style="{StaticResource PrimaryBtn}"
                         Click="ParseButton_Click"
                         ToolTip="Parse the query and extract all C# expressions and SQL @parameters (Ctrl+Enter)"/>
+                <TextBlock VerticalAlignment="Center" Foreground="#78909C" FontSize="11"
+                           TextTrimming="CharacterEllipsis"
+                           Text="Supports $@&quot;&quot;, ternary {(bool?&quot;a&quot;:&quot;b&quot;)}, and cast {(int)Enum.Val} expressions"/>
             </DockPanel>
 
             <GroupBox Grid.Row="2" Header="② Enum Values  (paste C# enum definitions to auto-fill)">
