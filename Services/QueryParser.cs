@@ -21,16 +21,22 @@ public class QueryParser
     private static readonly Regex ParamPattern =
         new(@"@([A-Za-z_]\w*)", RegexOptions.Compiled);
 
+    // Matches a simple boolean variable condition: optional ! then identifier
+    private static readonly Regex SimpleConditionPattern =
+        new(@"^(!?)([A-Za-z_]\w*)$", RegexOptions.Compiled);
+
     public ParseResult Parse(string rawInput)
     {
         var cleaned = CleanCSharpWrapper(rawInput);
         var expressions = ParseExpressions(cleaned);
+        var boolVariables = BuildBoolVariables(expressions);
         var parameters = ParseParameters(cleaned, expressions);
 
         return new ParseResult
         {
             CleanedQuery = cleaned,
             Expressions = expressions,
+            BoolVariables = boolVariables,
             Parameters = parameters
         };
     }
@@ -61,14 +67,25 @@ public class QueryParser
             var ternaryMatch = TernaryPattern.Match(inner);
             if (ternaryMatch.Success)
             {
-                items.Add(new TernaryExpression
+                var condition = ternaryMatch.Groups[1].Value.Trim();
+                var simpleMatch = SimpleConditionPattern.Match(condition);
+
+                var ternary = new TernaryExpression
                 {
                     RawExpression = m.Value,
                     Expression = inner,
-                    Condition = ternaryMatch.Groups[1].Value.Trim(),
+                    Condition = condition,
                     TrueValue = ternaryMatch.Groups[2].Value,
                     FalseValue = ternaryMatch.Groups[3].Value
-                });
+                };
+
+                if (simpleMatch.Success)
+                {
+                    ternary.IsNegated = simpleMatch.Groups[1].Value == "!";
+                    ternary.ConditionVariable = simpleMatch.Groups[2].Value;
+                }
+
+                items.Add(ternary);
                 continue;
             }
 
@@ -80,6 +97,26 @@ public class QueryParser
         }
 
         return items;
+    }
+
+    private static List<BoolVariable> BuildBoolVariables(List<ParsedItem> expressions)
+    {
+        var dict = new Dictionary<string, BoolVariable>(StringComparer.Ordinal);
+
+        foreach (var ternary in expressions.OfType<TernaryExpression>())
+        {
+            if (ternary.ConditionVariable is null) continue;
+
+            if (!dict.TryGetValue(ternary.ConditionVariable, out var bv))
+            {
+                bv = new BoolVariable { Name = ternary.ConditionVariable };
+                dict[ternary.ConditionVariable] = bv;
+            }
+
+            bv.Ternaries.Add(ternary);
+        }
+
+        return dict.Values.ToList();
     }
 
     private static readonly Regex InParamPattern =

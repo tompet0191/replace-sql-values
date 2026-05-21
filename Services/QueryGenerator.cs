@@ -20,8 +20,8 @@ public class QueryGenerator
             {
                 CastExpression cast when !string.IsNullOrWhiteSpace(cast.ReplacementValue)
                     => cast.ReplacementValue!,
-                TernaryExpression ternary
-                    => ternary.UseTrue ? ternary.TrueValue : ternary.FalseValue,
+                TernaryExpression ternary when ternary.UseTrue.HasValue
+                    => ternary.UseTrue.Value ? ternary.TrueValue : ternary.FalseValue,
                 GenericExpression generic when !string.IsNullOrWhiteSpace(generic.ReplacementValue)
                     => generic.ReplacementValue!,
                 _ => expr.RawExpression   // keep original if no value provided

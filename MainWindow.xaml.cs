@@ -16,7 +16,8 @@ public partial class MainWindow : Window
 
     // Control-to-model bindings (populated on each Parse)
     private readonly List<(CastExpression Cast, TextBox Box)> _castControls = new();
-    private readonly List<(TernaryExpression Ternary, RadioButton TrueRb, RadioButton FalseRb)> _ternaryControls = new();
+    private readonly List<(BoolVariable Var, ComboBox Combo)> _boolVarControls = new();
+    private readonly List<(TernaryExpression Ternary, RadioButton TrueRb, RadioButton FalseRb)> _complexTernaryControls = new();
     private readonly List<(GenericExpression Generic, TextBox Box)> _genericControls = new();
     private readonly List<(SqlParameter Param, TextBox Box)> _paramControls = new();
 
@@ -84,9 +85,12 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(EnumTextBox.Text))
             ApplyEnums(silent: true);
 
-        var exprCount  = _parseResult.Expressions.Count;
-        var paramCount = _parseResult.Parameters.Count;
-        SetStatus($"Found {exprCount} C# expression(s) and {paramCount} SQL parameter(s).  Fill values and click Generate SQL.");
+        var boolVarCount   = _parseResult.BoolVariables.Count;
+        var exprCount      = _parseResult.Expressions.OfType<CastExpression>().Count()
+                           + _parseResult.Expressions.OfType<GenericExpression>().Count()
+                           + _parseResult.Expressions.OfType<TernaryExpression>().Count(t => t.ConditionVariable is null);
+        var paramCount     = _parseResult.Parameters.Count;
+        SetStatus($"Found {boolVarCount} bool variable(s), {exprCount} other expression(s), {paramCount} SQL parameter(s).");
     }
 
     private void ApplyEnums(bool silent = false)
@@ -127,9 +131,22 @@ public partial class MainWindow : Window
 
         // Read values from controls back into the model
         foreach (var (cast, box)           in _castControls)     cast.ReplacementValue = box.Text;
-        foreach (var (ternary, trueRb, _)  in _ternaryControls)  ternary.UseTrue = trueRb.IsChecked == true;
         foreach (var (generic, box)        in _genericControls)  generic.ReplacementValue = box.Text;
         foreach (var (param, box)          in _paramControls)    param.ReplacementValue = box.Text;
+
+        // Resolve bool variables → ternary UseTrue
+        foreach (var (bv, combo) in _boolVarControls)
+        {
+            bv.Value = combo.SelectedIndex switch { 0 => true, 1 => false, _ => null };
+            foreach (var ternary in bv.Ternaries)
+                ternary.UseTrue = bv.Value.HasValue
+                    ? (bv.Value.Value ^ ternary.IsNegated)   // XOR handles negation
+                    : null;
+        }
+
+        // Complex ternaries (not bound to a variable) — radio button picks
+        foreach (var (ternary, trueRb, _) in _complexTernaryControls)
+            ternary.UseTrue = trueRb.IsChecked == true;
 
         var output = _generator.Generate(
             _parseResult.CleanedQuery,
@@ -147,18 +164,21 @@ public partial class MainWindow : Window
     {
         ParametersPanel.Children.Clear();
         _castControls.Clear();
-        _ternaryControls.Clear();
+        _boolVarControls.Clear();
+        _complexTernaryControls.Clear();
         _genericControls.Clear();
         _paramControls.Clear();
 
         if (_parseResult == null) return;
 
-        var casts     = _parseResult.Expressions.OfType<CastExpression>().ToList();
-        var ternaries = _parseResult.Expressions.OfType<TernaryExpression>().ToList();
-        var generics  = _parseResult.Expressions.OfType<GenericExpression>().ToList();
-        var sqlParams = _parseResult.Parameters;
+        var casts          = _parseResult.Expressions.OfType<CastExpression>().ToList();
+        var boolVars       = _parseResult.BoolVariables;
+        var complexTernaries = _parseResult.Expressions.OfType<TernaryExpression>()
+                                 .Where(t => t.ConditionVariable is null).ToList();
+        var generics       = _parseResult.Expressions.OfType<GenericExpression>().ToList();
+        var sqlParams      = _parseResult.Parameters;
 
-        if (casts.Any() || ternaries.Any() || generics.Any())
+        if (casts.Any() || boolVars.Any() || complexTernaries.Any() || generics.Any())
         {
             var expander = MakeExpander("⚙  C# Expressions");
             var stack    = new StackPanel();
@@ -172,11 +192,17 @@ public partial class MainWindow : Window
                 stack.Children.Add(panel);
                 _castControls.Add((cast, box));
             }
-            foreach (var ternary in ternaries)
+            foreach (var bv in boolVars)
             {
-                var (panel, trueRb, falseRb) = MakeTernaryRow(ternary, row++);
+                var (panel, combo) = MakeBoolVarRow(bv, row++);
                 stack.Children.Add(panel);
-                _ternaryControls.Add((ternary, trueRb, falseRb));
+                _boolVarControls.Add((bv, combo));
+            }
+            foreach (var ternary in complexTernaries)
+            {
+                var (panel, trueRb, falseRb) = MakeComplexTernaryRow(ternary, row++);
+                stack.Children.Add(panel);
+                _complexTernaryControls.Add((ternary, trueRb, falseRb));
             }
             foreach (var generic in generics)
             {
@@ -245,11 +271,115 @@ public partial class MainWindow : Window
         return (WrapRow(grid, index), box);
     }
 
-    private (Border panel, RadioButton trueRb, RadioButton falseRb) MakeTernaryRow(TernaryExpression ternary, int index)
+    private static readonly Brush BrushIncluded  = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)); // green
+    private static readonly Brush BrushExcluded  = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)); // red
+    private static readonly Brush BrushEmpty     = new SolidColorBrush(Color.FromRgb(0x90, 0xA4, 0xAE)); // gray
+    private static readonly Brush BrushUnset     = new SolidColorBrush(Color.FromRgb(0xB0, 0xBE, 0xC5)); // light gray
+
+    private (Border panel, ComboBox combo) MakeBoolVarRow(BoolVariable bv, int index)
+    {
+        // Outer stack — variable name + combo on top, branch previews below
+        var outer = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
+
+        // ── Header row: name + combo ──
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        headerGrid.Children.Add(new TextBlock
+        {
+            Text = bv.Name,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x15, 0x65, 0xC0)),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
+        var combo = new ComboBox
+        {
+            Margin = new Thickness(0, 0, 6, 0),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 12,
+            SelectedIndex = 2
+        };
+        combo.Items.Add(new ComboBoxItem { Content = "true"  });
+        combo.Items.Add(new ComboBoxItem { Content = "false" });
+        combo.Items.Add(new ComboBoxItem { Content = "(not set)", Foreground = Brushes.Gray });
+        Grid.SetColumn(combo, 1);
+
+        headerGrid.Children.Add(combo);
+        outer.Children.Add(headerGrid);
+
+        // ── Branch preview lines — one per ternary ──
+        // For each ternary we create a TextBlock; updated live on combo change.
+        var previewBlocks = new List<(TernaryExpression Ternary, TextBlock Block)>();
+
+        foreach (var t in bv.Ternaries)
+        {
+            var block = new TextBlock
+            {
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 11,
+                Margin = new Thickness(8, 2, 0, 0),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = $"true branch:  {(string.IsNullOrEmpty(t.TrueValue) ? "(empty)" : t.TrueValue)}\n" +
+                          $"false branch: {(string.IsNullOrEmpty(t.FalseValue) ? "(empty)" : t.FalseValue)}"
+            };
+            outer.Children.Add(block);
+            previewBlocks.Add((t, block));
+        }
+
+        // Helper that refreshes all preview TextBlocks for the current combo state
+        void RefreshPreviews()
+        {
+            bool? varValue = combo.SelectedIndex switch { 0 => true, 1 => false, _ => null };
+
+            foreach (var (t, block) in previewBlocks)
+            {
+                if (!varValue.HasValue)
+                {
+                    // Not set — show both branches dimmed
+                    block.Text = $"? {(string.IsNullOrEmpty(t.TrueValue) ? "(empty)" : t.TrueValue)}"
+                               + $"  /  {(string.IsNullOrEmpty(t.FalseValue) ? "(empty)" : t.FalseValue)}";
+                    block.Foreground = BrushUnset;
+                    block.TextDecorations = null;
+                }
+                else
+                {
+                    // Resolve: XOR for negation
+                    bool useTrue = varValue.Value ^ t.IsNegated;
+                    var activeText   = useTrue ? t.TrueValue  : t.FalseValue;
+                    var inactiveText = useTrue ? t.FalseValue : t.TrueValue;
+                    bool activeIsEmpty = string.IsNullOrEmpty(activeText);
+
+                    if (activeIsEmpty)
+                    {
+                        block.Text = "(nothing added)";
+                        block.Foreground = BrushEmpty;
+                        block.TextDecorations = null;
+                    }
+                    else
+                    {
+                        block.Text = activeText;
+                        block.Foreground = BrushIncluded;
+                        block.TextDecorations = null;
+                    }
+                }
+            }
+        }
+
+        combo.SelectionChanged += (_, _) => RefreshPreviews();
+        RefreshPreviews(); // set initial state
+
+        return (WrapRow(outer, index), combo);
+    }
+
+    private (Border panel, RadioButton trueRb, RadioButton falseRb) MakeComplexTernaryRow(TernaryExpression ternary, int index)
     {
         var stack = new StackPanel { Margin = new Thickness(6, 4, 6, 4) };
 
-        var condLabel = new TextBlock
+        stack.Children.Add(new TextBlock
         {
             Text = $"?  {ternary.Condition}",
             FontFamily = new FontFamily("Consolas"),
@@ -257,11 +387,9 @@ public partial class MainWindow : Window
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x15, 0x65, 0xC0)),
             Margin = new Thickness(0, 0, 0, 4)
-        };
-        stack.Children.Add(condLabel);
+        });
 
-        var group = $"ternary_{Guid.NewGuid():N}";
-
+        var group     = $"ternary_{Guid.NewGuid():N}";
         var trueText  = string.IsNullOrEmpty(ternary.TrueValue)  ? "(empty string)" : ternary.TrueValue;
         var falseText = string.IsNullOrEmpty(ternary.FalseValue) ? "(empty string)" : ternary.FalseValue;
 
@@ -273,8 +401,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(8, 1, 0, 1),
             FontFamily = new FontFamily("Consolas"),
             FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)),
-            ToolTip = "Include this SQL fragment"
+            Foreground = new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32))
         };
         var falseRb = new RadioButton
         {
@@ -284,8 +411,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(8, 1, 0, 1),
             FontFamily = new FontFamily("Consolas"),
             FontSize = 11,
-            Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28)),
-            ToolTip = "Use this branch instead"
+            Foreground = new SolidColorBrush(Color.FromRgb(0xC6, 0x28, 0x28))
         };
 
         stack.Children.Add(trueRb);
