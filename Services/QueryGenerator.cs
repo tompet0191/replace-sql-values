@@ -5,6 +5,11 @@ namespace ReplaceValuesSql.Services;
 
 public class QueryGenerator
 {
+    private static readonly Regex SingleLineCommentPattern =
+        new(@"--[^\n]*", RegexOptions.Compiled);
+    private static readonly Regex MultiLineCommentPattern =
+        new(@"/\*.*?\*/", RegexOptions.Singleline | RegexOptions.Compiled);
+
     public string Generate(
         string cleanedQuery,
         List<ParsedItem> expressions,
@@ -41,26 +46,22 @@ public class QueryGenerator
             }
         }
 
-        // 2. Replace SQL @parameters
+        // 2. Replace SQL @parameters — only outside comments
         foreach (var param in parameters)
         {
             if (!string.IsNullOrWhiteSpace(param.ReplacementValue))
             {
                 var value = param.ReplacementValue!.Trim();
 
-                // Auto-wrap IN-list params: "1,2,3" → "(1,2,3)", "(1,2,3)" stays as-is
                 if (param.IsListParam && !(value.StartsWith("(") && value.EndsWith(")")))
                     value = $"({value})";
 
-                // Use MatchEvaluator to prevent regex treating $ \ in value as special
-                result = Regex.Replace(
-                    result,
-                    $@"(?<!@)@{Regex.Escape(param.Name)}\b",
-                    _ => value);
+                // Replace @param only in non-comment segments
+                result = ReplaceOutsideComments(result, $@"(?<!@)@{Regex.Escape(param.Name)}\b", _ => value);
             }
             else if (!keepUnfilledParams)
             {
-                result = Regex.Replace(result, $@"(?<!@)@{Regex.Escape(param.Name)}\b", "");
+                result = ReplaceOutsideComments(result, $@"(?<!@)@{Regex.Escape(param.Name)}\b", _ => "");
             }
         }
 
@@ -69,5 +70,28 @@ public class QueryGenerator
         result = Regex.Replace(result, @"\n{3,}", "\n\n");
 
         return result.Trim();
+    }
+
+    /// <summary>
+    /// Replaces <paramref name="pattern"/> matches only in non-comment segments of
+    /// <paramref name="input"/>, leaving -- line comments and /* block comments */ intact.
+    /// </summary>
+    private static string ReplaceOutsideComments(string input, string pattern, MatchEvaluator evaluator)
+    {
+        // Split the text into alternating comment / non-comment segments.
+        // We reassemble, only running the replacement on non-comment segments.
+        var commentPattern = new Regex(@"(--[^\n]*|/\*.*?\*/)", RegexOptions.Singleline);
+        var parts = commentPattern.Split(input);
+        // Split returns: [non-comment, comment, non-comment, comment, ...]
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < parts.Length; i++)
+        {
+            // Even indices = non-comment text; odd indices = captured comment
+            if (i % 2 == 0)
+                sb.Append(Regex.Replace(parts[i], pattern, evaluator));
+            else
+                sb.Append(parts[i]);
+        }
+        return sb.ToString();
     }
 }

@@ -8,4 +8,9 @@
     <AssemblyName>ReplaceValuesSql</AssemblyName>
     <RootNamespace>ReplaceValuesSql</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Tests\**" />
+    <None Remove="Tests\**" />
+    <EmbeddedResource Remove="Tests\**" />
+  </ItemGroup>
 </Project>

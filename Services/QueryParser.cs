@@ -122,6 +122,17 @@ public class QueryParser
     private static readonly Regex InParamPattern =
         new(@"\bIN\s+@([A-Za-z_]\w*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Strip SQL comments before scanning so @params inside comments are ignored
+    private static readonly Regex SingleLineCommentPattern =
+        new(@"--[^\n]*", RegexOptions.Compiled);
+    private static readonly Regex MultiLineCommentPattern =
+        new(@"/\*.*?\*/", RegexOptions.Singleline | RegexOptions.Compiled);
+
+    // T-SQL local variable declarations and assignments — not user-supplied params
+    private static readonly Regex LocalVarPattern =
+        new(@"(?:DECLARE|SET|SELECT)\s+@([A-Za-z_]\w*)\s*(?:=|[A-Za-z])",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     // Matches OPENJSON(@param) WITH ( — captures param name and index of the opening paren
     private static readonly Regex OpenJsonPattern =
         new(@"OPENJSON\s*\(\s*@(\w+)\s*\)\s+WITH\s*\(", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -141,7 +152,17 @@ public class QueryParser
             .OfType<TernaryExpression>()
             .SelectMany(t => new[] { t.TrueValue, t.FalseValue }));
 
-        var searchText = stripped + " " + ternaryText;
+        var rawSearchText = stripped + " " + ternaryText;
+
+        // Remove SQL comments so @params inside -- or /* */ blocks aren't picked up
+        var searchText = SingleLineCommentPattern.Replace(rawSearchText, " ");
+        searchText     = MultiLineCommentPattern.Replace(searchText, " ");
+
+        // Collect T-SQL local variables (DECLARE @x / SET @x = / SELECT @x =)
+        // so they are not shown as user-supplied parameters
+        var localVars = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in LocalVarPattern.Matches(searchText))
+            localVars.Add(m.Groups[1].Value);
 
         // Collect which param names appear after IN
         var inListNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -155,7 +176,6 @@ public class QueryParser
             var name = m.Groups[1].Value;
             if (!jsonParams.ContainsKey(name))
             {
-                // The opening paren of WITH ( is the last char of this match
                 var columns = ParseWithColumns(searchText, m.Index + m.Length - 1);
                 jsonParams[name] = columns;
             }
@@ -167,6 +187,7 @@ public class QueryParser
         foreach (Match m in ParamPattern.Matches(searchText))
         {
             var name = m.Groups[1].Value;
+            if (localVars.Contains(name)) continue;
             if (seen.Add(name))
                 parameters.Add(new SqlParameter
                 {
