@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -19,7 +20,7 @@ public partial class MainWindow : Window
     private readonly List<(BoolVariable Var, ComboBox Combo)> _boolVarControls = new();
     private readonly List<(TernaryExpression Ternary, RadioButton TrueRb, RadioButton FalseRb)> _complexTernaryControls = new();
     private readonly List<(GenericExpression Generic, TextBox Box)> _genericControls = new();
-    private readonly List<(SqlParameter Param, TextBox Box)> _paramControls = new();
+    private readonly List<(SqlParameter Param, TextBox Box, Border Row)> _paramControls = new();
 
     // Alternate row colors
     private static readonly Brush RowEven = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
@@ -132,7 +133,7 @@ public partial class MainWindow : Window
         // Read values from controls back into the model
         foreach (var (cast, box)           in _castControls)     cast.ReplacementValue = box.Text;
         foreach (var (generic, box)        in _genericControls)  generic.ReplacementValue = box.Text;
-        foreach (var (param, box)          in _paramControls)    param.ReplacementValue = box.Text;
+        foreach (var (param, box, _)          in _paramControls)    param.ReplacementValue = box.Text;
 
         // Resolve bool variables → ternary UseTrue
         foreach (var (bv, combo) in _boolVarControls)
@@ -222,14 +223,17 @@ public partial class MainWindow : Window
             int row = 0;
             foreach (var param in sqlParams)
             {
-                var (panel, box) = MakeParamRow(param, row++);
+                var (panel, box, rowBorder) = MakeParamRow(param, row++);
                 stack.Children.Add(panel);
-                _paramControls.Add((param, box));
+                _paramControls.Add((param, box, rowBorder));
             }
         }
 
         if (!_parseResult.Expressions.Any() && !_parseResult.Parameters.Any())
             ShowEmptyHint("No C# expressions or @parameters found in the query.");
+
+        // Set initial param visibility based on any pre-existing ternary state
+        RefreshParamVisibility();
     }
 
     // ─────────────────────────────── Row factories ─────────────────────────────────
@@ -379,8 +383,17 @@ public partial class MainWindow : Window
             }
         }
 
-        combo.SelectionChanged += (_, _) => RefreshPreviews();
-        RefreshPreviews(); // set initial state
+        combo.SelectionChanged += (_, _) =>
+        {
+            // Update ternary model so RefreshParamVisibility sees current state
+            bool? varValue = combo.SelectedIndex switch { 0 => true, 1 => false, _ => null };
+            foreach (var t in bv.Ternaries)
+                t.UseTrue = varValue.HasValue ? (varValue.Value ^ t.IsNegated) : null;
+
+            RefreshPreviews();
+            RefreshParamVisibility();
+        };
+        RefreshPreviews(); // set initial state (no need to call RefreshParamVisibility here — params aren't built yet)
 
         return (WrapRow(outer, index), combo);
     }
@@ -469,7 +482,7 @@ public partial class MainWindow : Window
         return (WrapRow(grid, index), box);
     }
 
-    private (Border panel, TextBox box) MakeParamRow(SqlParameter param, int index)
+    private (Border panel, TextBox box, Border row) MakeParamRow(SqlParameter param, int index)
     {
         var grid = new Grid { Margin = new Thickness(0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -542,7 +555,43 @@ public partial class MainWindow : Window
             grid.Children.Add(label);
         grid.Children.Add(box);
 
-        return (WrapRow(grid, index), box);
+        var row = WrapRow(grid, index);
+        return (row, box, row);
+    }
+
+    // ─────────────────────────── Param visibility ──────────────────────────────
+
+    private void RefreshParamVisibility()
+    {
+        if (_parseResult == null || _paramControls.Count == 0) return;
+
+        var active = GetActiveParamNames();
+        foreach (var (param, box, rowBorder) in _paramControls)
+        {
+            var isActive = active.Contains(param.Name);
+            rowBorder.Opacity = isActive ? 1.0 : 0.35;
+            box.IsEnabled = isActive;
+        }
+    }
+
+    private HashSet<string> GetActiveParamNames()
+    {
+        if (_parseResult == null) return new();
+
+        // Build effective text using current ternary resolution state
+        var text = _parseResult.CleanedQuery;
+        foreach (var expr in _parseResult.Expressions.OfType<TernaryExpression>())
+        {
+            string replacement = expr.UseTrue.HasValue
+                ? (expr.UseTrue.Value ? expr.TrueValue : expr.FalseValue)
+                : expr.TrueValue + " " + expr.FalseValue; // unresolved → include both branches
+            text = text.Replace(expr.RawExpression, replacement);
+        }
+
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in Regex.Matches(text, @"@([A-Za-z_]\w*)"))
+            result.Add(m.Groups[1].Value);
+        return result;
     }
 
     // ─────────────────────────────── Helpers ───────────────────────────────────────
