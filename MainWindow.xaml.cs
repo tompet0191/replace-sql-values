@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private readonly QueryGenerator _generator = new();
 
     private ParseResult? _parseResult;
+    private SessionState? _restoredState;
 
     // Control-to-model bindings (populated on each Parse)
     private readonly List<(CastExpression Cast, TextBox Box)> _castControls = new();
@@ -30,7 +31,22 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        ShowEmptyHint();
+
+        // Restore previous session
+        _restoredState = SessionPersistence.Load();
+        if (_restoredState != null)
+        {
+            InputTextBox.Text = _restoredState.QueryText;
+            EnumTextBox.Text  = _restoredState.EnumText;
+            if (!string.IsNullOrWhiteSpace(_restoredState.QueryText))
+                ParseQuery();
+        }
+        else
+        {
+            ShowEmptyHint();
+        }
+
+        Closing += (_, _) => SaveSession();
 
         // Keyboard shortcuts
         InputBinding parseShortcut = new KeyBinding(
@@ -64,8 +80,10 @@ public partial class MainWindow : Window
         EnumTextBox.Clear();
         OutputTextBox.Clear();
         _parseResult = null;
+        _restoredState = null;
         ShowEmptyHint();
         SetStatus("");
+        SessionPersistence.Save(new SessionState()); // wipe saved session
     }
 
     // ─────────────────────────────── Core logic ────────────────────────────────────
@@ -274,6 +292,10 @@ public partial class MainWindow : Window
             ShowEmptyHint("No C# expressions or @parameters found in the query.");
 
         // Set initial param visibility based on any pre-existing ternary state
+        RefreshParamVisibility();
+
+        // Restore previously saved values if available
+        RestoreValues();
         RefreshParamVisibility();
     }
 
@@ -827,7 +849,98 @@ public partial class MainWindow : Window
         return result;
     }
 
-    // ─────────────────────────────── Helpers ───────────────────────────────────────
+    // ─────────────────────────── Session persistence ────────────────────────────
+
+    private void SaveSession()
+    {
+        var state = new SessionState
+        {
+            QueryText = InputTextBox.Text,
+            EnumText  = EnumTextBox.Text
+        };
+
+        foreach (var (cast, box) in _castControls)
+            if (!string.IsNullOrEmpty(box.Text))
+                state.CastValues[cast.Expression] = box.Text;
+
+        foreach (var (param, box, _) in _paramControls)
+            if (!string.IsNullOrEmpty(box.Text))
+                state.ParamValues[param.Name] = box.Text;
+
+        foreach (var (bv, combo) in _boolVarControls)
+            state.BoolVariableValues[bv.Name] = combo.SelectedIndex switch { 0 => true, 1 => false, _ => null };
+
+        foreach (var (generic, box) in _genericControls)
+            if (!string.IsNullOrEmpty(box.Text))
+                state.GenericValues[generic.Expression] = box.Text;
+
+        foreach (var (ternary, trueRb, _) in _complexTernaryControls)
+            state.ComplexTernaryValues[ternary.RawExpression] = trueRb.IsChecked == true;
+
+        foreach (var (param, rows, _, jsonBox, inJsonMode) in _jsonParamControls)
+        {
+            state.JsonParamModes[param.Name]  = inJsonMode();
+            state.JsonPasteValues[param.Name] = jsonBox.Text;
+            var savedRows = new List<Dictionary<string, string>>();
+            foreach (var rowBoxes in rows)
+            {
+                var rowDict = new Dictionary<string, string>();
+                for (int c = 0; c < param.JsonColumns.Count; c++)
+                    rowDict[param.JsonColumns[c].Name] = rowBoxes[c].Text;
+                savedRows.Add(rowDict);
+            }
+            state.JsonParamRows[param.Name] = savedRows;
+        }
+
+        SessionPersistence.Save(state);
+    }
+
+    private void RestoreValues()
+    {
+        if (_restoredState == null) return;
+
+        foreach (var (cast, box) in _castControls)
+            if (_restoredState.CastValues.TryGetValue(cast.Expression, out var v))
+                box.Text = v;
+
+        foreach (var (param, box, _) in _paramControls)
+            if (_restoredState.ParamValues.TryGetValue(param.Name, out var v))
+                box.Text = v;
+
+        foreach (var (bv, combo) in _boolVarControls)
+            if (_restoredState.BoolVariableValues.TryGetValue(bv.Name, out var v))
+                combo.SelectedIndex = v switch { true => 0, false => 1, _ => 2 };
+
+        foreach (var (generic, box) in _genericControls)
+            if (_restoredState.GenericValues.TryGetValue(generic.Expression, out var v))
+                box.Text = v;
+
+        foreach (var (ternary, trueRb, falseRb) in _complexTernaryControls)
+            if (_restoredState.ComplexTernaryValues.TryGetValue(ternary.RawExpression, out var v))
+            {
+                trueRb.IsChecked  = v;
+                falseRb.IsChecked = !v;
+            }
+
+        foreach (var (param, rows, _, jsonBox, _) in _jsonParamControls)
+        {
+            if (_restoredState.JsonPasteValues.TryGetValue(param.Name, out var paste))
+                jsonBox.Text = paste;
+
+            if (_restoredState.JsonParamRows.TryGetValue(param.Name, out var savedRows))
+            {
+                // First row already exists — fill it, add more as needed
+                for (int r = 0; r < savedRows.Count; r++)
+                {
+                    if (r >= rows.Count)
+                        break; // AddDataRow is not accessible here; extra rows are skipped
+                    for (int c = 0; c < param.JsonColumns.Count; c++)
+                        if (savedRows[r].TryGetValue(param.JsonColumns[c].Name, out var cellVal))
+                            rows[r][c].Text = cellVal;
+                }
+            }
+        }
+    }
 
     private static Border WrapRow(UIElement content, int index) =>
         new()
