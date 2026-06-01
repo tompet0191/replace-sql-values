@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     private readonly List<(BoolVariable Var, ComboBox Combo)> _boolVarControls = new();
     private readonly List<(TernaryExpression Ternary, RadioButton TrueRb, RadioButton FalseRb)> _complexTernaryControls = new();
     private readonly List<(GenericExpression Generic, TextBox Box)> _genericControls = new();
-    private readonly List<(SqlParameter Param, TextBox Box, Border Row)> _paramControls = new();
+    private readonly List<(SqlParameter Param, TextBox Box, CheckBox QuoteBox, Border Row)> _paramControls = new();
     private readonly List<(SqlParameter Param, List<List<TextBox>> Rows, StackPanel OuterPanel, TextBox JsonBox, Func<bool> InJsonMode)> _jsonParamControls = new();
 
     // Alternate row colors
@@ -152,7 +152,11 @@ public partial class MainWindow : Window
         // Read values from controls back into the model
         foreach (var (cast, box)           in _castControls)     cast.ReplacementValue = box.Text;
         foreach (var (generic, box)        in _genericControls)  generic.ReplacementValue = box.Text;
-        foreach (var (param, box, _)          in _paramControls)    param.ReplacementValue = box.Text;
+        foreach (var (param, box, quoteBox, _) in _paramControls)
+        {
+            param.ReplacementValue = box.Text;
+            param.QuoteValue = quoteBox.IsChecked == true;
+        }
 
         // Serialize JSON params from the table rows or raw paste box
         foreach (var (param, rows, _, jsonBox, inJsonMode) in _jsonParamControls)
@@ -281,9 +285,9 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    var (panel, box, rowBorder) = MakeParamRow(param, row++);
+                    var (panel, box, quoteBox, rowBorder) = MakeParamRow(param, row++);
                     stack.Children.Add(panel);
-                    _paramControls.Add((param, box, rowBorder));
+                    _paramControls.Add((param, box, quoteBox, rowBorder));
                 }
             }
         }
@@ -545,10 +549,11 @@ public partial class MainWindow : Window
         return (WrapRow(grid, index), box);
     }
 
-    private (Border panel, TextBox box, Border row) MakeParamRow(SqlParameter param, int index)
+    private (Border panel, TextBox box, CheckBox quoteBox, Border row) MakeParamRow(SqlParameter param, int index)
     {
         var grid = new Grid { Margin = new Thickness(0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var label = new TextBlock
@@ -597,6 +602,17 @@ public partial class MainWindow : Window
             label.Text = $"@{param.Name}";
         }
 
+        var quoteCheck = new CheckBox
+        {
+            Content = "'",
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 11,
+            IsChecked = !param.IsListParam,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+            ToolTip = "Wrap value in single quotes when generating SQL.\nLeave unchecked for numeric values."
+        };
+
         var box = new TextBox
         {
             FontFamily = new FontFamily("Consolas"),
@@ -607,19 +623,19 @@ public partial class MainWindow : Window
             Text = param.ReplacementValue ?? "",
             ToolTip = param.IsListParam
                 ? "IN-list value — enter as  1,2,3  or  (1,2,3)  (parentheses added automatically)"
-                : "Value to substitute inline.\n• Number:  123\n• String:  'hello'\n• IN list: (1, 2, 3)"
+                : "Raw value to substitute (without quotes — use the ' checkbox to wrap automatically)."
         };
 
-        if (!param.IsListParam)
-            Grid.SetColumn(label, 0);
-
-        Grid.SetColumn(box, 1);
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(quoteCheck, 1);
+        Grid.SetColumn(box, 2);
         if (!param.IsListParam)
             grid.Children.Add(label);
+        grid.Children.Add(quoteCheck);
         grid.Children.Add(box);
 
         var row = WrapRow(grid, index);
-        return (row, box, row);
+        return (row, box, quoteCheck, row);
     }
 
     private Border MakeJsonParamRow(SqlParameter param, int index)
@@ -811,7 +827,7 @@ public partial class MainWindow : Window
 
         var active = GetActiveParamNames();
 
-        foreach (var (param, box, rowBorder) in _paramControls)
+        foreach (var (param, box, _, rowBorder) in _paramControls)
         {
             var isActive = active.Contains(param.Name);
             rowBorder.Opacity = isActive ? 1.0 : 0.35;
@@ -863,9 +879,12 @@ public partial class MainWindow : Window
             if (!string.IsNullOrEmpty(box.Text))
                 state.CastValues[cast.Expression] = box.Text;
 
-        foreach (var (param, box, _) in _paramControls)
+        foreach (var (param, box, quoteBox, _) in _paramControls)
+        {
             if (!string.IsNullOrEmpty(box.Text))
                 state.ParamValues[param.Name] = box.Text;
+            state.ParamQuoteValues[param.Name] = quoteBox.IsChecked == true;
+        }
 
         foreach (var (bv, combo) in _boolVarControls)
             state.BoolVariableValues[bv.Name] = combo.SelectedIndex switch { 0 => true, 1 => false, _ => null };
@@ -903,9 +922,13 @@ public partial class MainWindow : Window
             if (_restoredState.CastValues.TryGetValue(cast.Expression, out var v))
                 box.Text = v;
 
-        foreach (var (param, box, _) in _paramControls)
+        foreach (var (param, box, quoteBox, _) in _paramControls)
+        {
             if (_restoredState.ParamValues.TryGetValue(param.Name, out var v))
                 box.Text = v;
+            if (_restoredState.ParamQuoteValues.TryGetValue(param.Name, out var q))
+                quoteBox.IsChecked = q;
+        }
 
         foreach (var (bv, combo) in _boolVarControls)
             if (_restoredState.BoolVariableValues.TryGetValue(bv.Name, out var v))
