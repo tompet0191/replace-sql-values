@@ -9,6 +9,7 @@ public class SessionState
     public string EnumText { get; set; } = "";
     public Dictionary<string, string> CastValues { get; set; } = new();
     public Dictionary<string, string> ParamValues { get; set; } = new();
+    public Dictionary<string, bool> ParamQuoteValues { get; set; } = new();
     public Dictionary<string, bool?> BoolVariableValues { get; set; } = new();
     public Dictionary<string, string> GenericValues { get; set; } = new();
     public Dictionary<string, bool> ComplexTernaryValues { get; set; } = new();

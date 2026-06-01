@@ -56,6 +56,8 @@ public class SqlParameter
     /// <summary>True when the parameter is used in OPENJSON(@param) WITH (...).</summary>
     public bool IsJsonParam { get; set; }
     public List<JsonColumn> JsonColumns { get; set; } = new();
+    /// <summary>When true the generator wraps the replacement value in single quotes.</summary>
+    public bool QuoteValue { get; set; }
 }
 
 public class JsonColumn

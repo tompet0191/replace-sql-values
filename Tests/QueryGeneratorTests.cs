@@ -117,6 +117,18 @@ public class QueryGeneratorTests
         result.Should().NotContain("@SalonId");
     }
 
+    [Fact]
+    public void Generate_ReplacesParamCaseInsensitive()
+    {
+        // Param registered as "from" should replace @from, @From, @FROM, etc.
+        var paramFrom = new SqlParameter { Name = "from", ReplacementValue = "'2024-01-01'" };
+        var paramTo   = new SqlParameter { Name = "to",   ReplacementValue = "'2024-01-31'" };
+        var result = Generate(
+            "WHERE BookingDate >= @from AND BookingDate < @to AND Date <= CONVERT(DATE, @To)",
+            parameters: [paramFrom, paramTo]);
+        result.Should().Be("WHERE BookingDate >= '2024-01-01' AND BookingDate < '2024-01-31' AND Date <= CONVERT(DATE, '2024-01-31')");
+    }
+
     // ─────────────────────────────── IN-list wrapping ─────────────────────────────
 
     [Fact]
@@ -170,6 +182,30 @@ public class QueryGeneratorTests
         var result = Generate("-- @SalonId\nWHERE SalonId = @SalonId", parameters: [param]);
         result.Should().Contain("-- @SalonId");
         result.Should().Contain("WHERE SalonId = 42");
+    }
+
+    [Fact]
+    public void Generate_QuotesValueWhenFlagSet()
+    {
+        var param = new SqlParameter { Name = "from", ReplacementValue = "2024-01-01", QuoteValue = true };
+        var result = Generate("WHERE Date >= @from", parameters: [param]);
+        result.Should().Be("WHERE Date >= '2024-01-01'");
+    }
+
+    [Fact]
+    public void Generate_DoesNotQuoteValueWhenFlagNotSet()
+    {
+        var param = new SqlParameter { Name = "SalonId", ReplacementValue = "42", QuoteValue = false };
+        var result = Generate("WHERE SalonId = @SalonId", parameters: [param]);
+        result.Should().Be("WHERE SalonId = 42");
+    }
+
+    [Fact]
+    public void Generate_EscapesSingleQuotesInsideQuotedValue()
+    {
+        var param = new SqlParameter { Name = "name", ReplacementValue = "O'Brien", QuoteValue = true };
+        var result = Generate("WHERE Name = @name", parameters: [param]);
+        result.Should().Be("WHERE Name = 'O''Brien'");
     }
 
     // ─────────────────────── JSON param with special chars ────────────────────────

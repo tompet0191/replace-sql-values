@@ -53,6 +53,9 @@ public class QueryGenerator
             {
                 var value = param.ReplacementValue!.Trim();
 
+                if (param.QuoteValue)
+                    value = $"'{value.Replace("'", "''")}'";
+
                 if (param.IsListParam && !(value.StartsWith("(") && value.EndsWith(")")))
                     value = $"({value})";
 
@@ -88,7 +91,7 @@ public class QueryGenerator
         {
             // Even indices = non-comment text; odd indices = captured comment
             if (i % 2 == 0)
-                sb.Append(Regex.Replace(parts[i], pattern, evaluator));
+                sb.Append(Regex.Replace(parts[i], pattern, evaluator, RegexOptions.IgnoreCase));
             else
                 sb.Append(parts[i]);
         }
